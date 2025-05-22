@@ -20,9 +20,10 @@ class PhpClassNavigator(sublime_plugin.EventListener):
             )
 
     def on_text_command(self, view, command_name, args):
+        # ST3-compatible CMD+Click detection
         if (command_name == "drag_select" and
             args.get("by") == "words" and
-            sublime.get_mouse_additional_buttons() & 64):  # 64 = CMD key in ST3
+            'command' in sublime.get_mouse_modifiers()):
 
             point = view.sel()[0].begin()
             if view.match_selector(point, "source.php, text.html.basic"):
@@ -53,7 +54,9 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
 
     def get_project_root(self):
         folders = sublime.active_window().folders()
-        return folders[0] if folders else None
+        if folders:
+            return folders[0]
+        return None
 
     def get_selection(self):
         for region in self.view.sel():
@@ -139,7 +142,9 @@ class InsertUseStatementCommand(sublime_plugin.TextCommand):
 
     def find_namespace_end(self):
         ns_region = self.view.find(r'<\?php|\bnamespace\b', 0)
-        return self.view.line(ns_region).end() if ns_region else 0
+        if ns_region:
+            return self.view.line(ns_region).end()
+        return 0
 
 def plugin_loaded():
-    print("PHP Class Navigator loaded (ST3/Python 3.3 compatible)")
+    print("PHP Class Navigator loaded (ST3 compatible)")

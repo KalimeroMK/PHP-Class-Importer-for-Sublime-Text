@@ -71,8 +71,8 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
                     full_path = os.path.join(root, file)
                     classes = self.extract_classes_from_file(full_path)
                     for class_name, namespace in classes:
-                        # Python 3.3 compatible string formatting
-                        fqcn = "{}\\{}".format(namespace, class_name) if namespace else class_name
+                        # Python 3.8-compatible string formatting
+                        fqcn = "{0}\\{1}".format(namespace, class_name) if namespace else class_name
                         class_map[class_name] = (fqcn, full_path)
                         class_map[fqcn] = (fqcn, full_path)
         return class_map
@@ -102,7 +102,7 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
 
     def handle_class_result(self, class_info, class_name):
         if not class_info:
-            sublime.status_message(f"Class not found: {class_name}")
+            sublime.status_message("Class not found: {0}".format(class_name))
             return
 
         fqcn, file_path = class_info
@@ -129,7 +129,7 @@ class InsertUseStatementCommand(sublime_plugin.TextCommand):
         use_region = self.view.find(r'^\s*use\s+.*?;', 0)
         insert_point = use_region.end() + 1 if use_region else self.find_namespace_end()
 
-        self.view.insert(edit, insert_point, 'use {};\n'.format(class_name))
+        self.view.insert(edit, insert_point, 'use {0};\n'.format(class_name))
 
     def find_namespace_end(self):
         namespace_region = self.view.find(r'<\?php|\bnamespace\b', 0)

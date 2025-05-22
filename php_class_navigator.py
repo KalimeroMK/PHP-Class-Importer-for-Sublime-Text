@@ -4,141 +4,138 @@ import os
 import re
 import threading
 from functools import lru_cache
-from pathlib import Path
 
 class PhpClassNavigator(sublime_plugin.EventListener):
-    """Enables PHPStorm-like class navigation in Sublime Text"""
-
     def on_hover(self, view, point, hover_zone):
-        """Handle Ctrl+Click on class names"""
-        if (hover_zone != sublime.HOVER_TEXT or
-            not (sublime.get_mouse_additional_buttons() &
-                 (sublime.MOUSE_CTRL | sublime.MOUSE_CMD))):
+        if hover_zone != sublime.HOVER_TEXT:
             return
 
-        class_name = view.substr(view.word(point))
-        if self._is_php_file(view):
-            view.run_command("dynamic_class_search_and_import",
-                           {"class_name": class_name})
+        modifiers = sublime.get_mouse_additional_buttons()
+        if not (modifiers & sublime.MOUSE_CTRL or modifiers & sublime.MOUSE_CMD):
+            return
 
-    def _is_php_file(self, view):
-        """Check if file is PHP or Blade template"""
+        word_region = view.word(point)
+        class_name = view.substr(word_region)
+
         syntax = view.syntax()
-        return syntax and ("php" in syntax.name.lower() or
-                         "blade" in syntax.name.lower())
+        if not syntax or ("php" not in syntax.name.lower() and "blade" not in syntax.name.lower()):
+            return
+
+        view.run_command("dynamic_class_search_and_import", {"class_name": class_name})
 
 class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
-    """Main command for finding and importing PHP classes"""
-
     def run(self, edit, class_name=None):
-        """Entry point for the command"""
         if not class_name:
-            class_name = self._get_selection()
+            class_name = self.get_selection()
+            if not class_name:
+                sublime.status_message("No class name selected.")
+                return
 
-        if not class_name:
-            return sublime.status_message("No class name selected")
+        project_dir = self.get_project_root()
+        if not project_dir:
+            sublime.status_message("No project directory found.")
+            return
 
-        if project_dir := self._get_project_root():
-            threading.Thread(
-                target=self._find_and_handle_class,
-                args=(project_dir, class_name.strip())
-            ).start()
-        else:
-            sublime.status_message("No project directory found")
+        threading.Thread(
+            target=self.find_and_handle_class,
+            args=(project_dir, class_name.strip())
+        ).start()
 
-    def _get_project_root(self):
-        """Get the first project folder"""
-        if folders := sublime.active_window().folders():
-            return folders[0]
-        return None
+    def get_project_root(self):
+        window = sublime.active_window()
+        if not window.folders():
+            return None
+        return window.folders()[0]
 
-    def _get_selection(self):
-        """Get currently selected text or word under cursor"""
+    def get_selection(self):
         for region in self.view.sel():
-            return (self.view.substr(region) if not region.empty()
-                    else self.view.substr(self.view.word(region)))
+            if not region.empty():
+                return self.view.substr(region)
+            return self.view.substr(self.view.word(region))
         return None
 
-    def _find_and_handle_class(self, project_dir, class_name):
-        """Threaded class search and handling"""
-        if class_info := self._find_php_class(project_dir, class_name):
-            sublime.set_timeout(
-                lambda: self._open_class_file(class_info[1]), 0)
-        else:
-            sublime.set_timeout(
-                lambda: sublime.status_message(f"Class not found: {class_name}"), 0)
+    def find_and_handle_class(self, project_dir, class_name):
+        class_info = self.find_php_class(project_dir, class_name)
+        sublime.set_timeout(lambda: self.handle_class_result(class_info, class_name), 0)
 
     @lru_cache(maxsize=100)
-    def _find_php_class(self, project_dir, class_name):
-        """Find class in project with caching"""
-        return self._build_class_map(project_dir).get(class_name)
+    def find_php_class(self, project_dir, class_name):
+        class_map = self.build_class_map(project_dir)
+        return class_map.get(class_name)
 
-    def _build_class_map(self, directory):
-        """Create mapping of all classes to their files"""
+    def build_class_map(self, directory):
         class_map = {}
-        for php_file in Path(directory).rglob('*.php'):
-            for class_name, namespace in self._extract_classes_from_file(php_file):
-                fqcn = f"{namespace}\\{class_name}" if namespace else class_name
-                class_map.update({class_name: (fqcn, str(php_file)),
-                                fqcn: (fqcn, str(php_file))})
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.endswith('.php'):
+                    full_path = os.path.join(root, file)
+                    classes = self.extract_classes_from_file(full_path)
+                    for class_name, namespace in classes:
+                        # Python 3.3 compatible string formatting
+                        fqcn = "{}\\{}".format(namespace, class_name) if namespace else class_name
+                        class_map[class_name] = (fqcn, full_path)
+                        class_map[fqcn] = (fqcn, full_path)
         return class_map
 
-    def _extract_classes_from_file(self, file_path):
-        """Extract class definitions from PHP file"""
-        content = file_path.read_text(encoding='utf-8')
-        namespace = self._extract_namespace(content)
+    def extract_classes_from_file(self, file_path):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
 
-        return [
-            (match.group(2), namespace)
-            for match in re.finditer(r'(class|interface|trait)\s+(\w+)', content)
-            if not self._is_in_comment_or_string(content, match.start())
-        ]
+        namespace_match = re.search(r'namespace\s+([^;]+);', content)
+        namespace = namespace_match.group(1).strip() if namespace_match else ''
 
-    def _extract_namespace(self, content):
-        """Extract namespace from PHP file content"""
-        if match := re.search(r'namespace\s+([^;]+);', content):
-            return match.group(1).strip()
-        return ''
+        classes = []
+        for match in re.finditer(r'(class|interface|trait)\s+(\w+)', content):
+            if not self.is_in_comment_or_string(content, match.start()):
+                classes.append((match.group(2), namespace))
 
-    def _is_in_comment_or_string(self, content, pos):
-        """Check if position is inside comment or string"""
+        return classes
+
+    def is_in_comment_or_string(self, content, pos):
         preceding = content[:pos]
-        return ('/*' in preceding or
-                '//' in preceding.splitlines()[-1] or
-                preceding.count('"') % 2 != 0 or
-                preceding.count("'") % 2 != 0)
+        return (
+            '/*' in preceding or
+            '//' in preceding.splitlines()[-1] or
+            preceding.count('"') % 2 != 0 or
+            preceding.count("'") % 2 != 0
+        )
 
-    def _open_class_file(self, file_path):
-        """Open file and scroll to class definition"""
-        view = sublime.active_window().open_file(file_path)
+    def handle_class_result(self, class_info, class_name):
+        if not class_info:
+            sublime.status_message(f"Class not found: {class_name}")
+            return
+
+        fqcn, file_path = class_info
+        self.open_class_file(file_path)
+
+    def open_class_file(self, file_path):
+        window = sublime.active_window()
+        view = window.open_file(file_path)
 
         def scroll_to_class():
             if view.is_loading():
-                return sublime.set_timeout(scroll_to_class, 100)
-
-            if class_region := view.find(r'(class|interface|trait)\s+\w+', 0):
-                view.show_at_center(class_region)
-                view.sel().clear()
-                view.sel().add(class_region.begin())
+                sublime.set_timeout(scroll_to_class, 100)
+            else:
+                class_region = view.find(r'(class|interface|trait)\s+\w+', 0)
+                if class_region:
+                    view.show_at_center(class_region)
+                    view.sel().clear()
+                    view.sel().add(class_region.begin())
 
         sublime.set_timeout(scroll_to_class, 100)
 
 class InsertUseStatementCommand(sublime_plugin.TextCommand):
-    """Command for inserting use statements"""
-
     def run(self, edit, class_name):
-        """Insert use statement at correct location"""
-        insert_point = self._find_insert_position()
-        self.view.insert(edit, insert_point, f'use {class_name};\n')
+        use_region = self.view.find(r'^\s*use\s+.*?;', 0)
+        insert_point = use_region.end() + 1 if use_region else self.find_namespace_end()
 
-    def _find_insert_position(self):
-        """Find position after existing use statements or namespace"""
-        if use_region := self.view.find(r'^\s*use\s+.*?;', 0):
-            return use_region.end() + 1
-        if ns_region := self.view.find(r'<\?php|\bnamespace\b', 0):
-            return self.view.line(ns_region).end()
+        self.view.insert(edit, insert_point, 'use {};\n'.format(class_name))
+
+    def find_namespace_end(self):
+        namespace_region = self.view.find(r'<\?php|\bnamespace\b', 0)
+        if namespace_region:
+            return self.view.line(namespace_region).end()
         return 0
 
 def plugin_loaded():
-    """Initialization callback"""
-    print("PHP Class Navigator successfully loaded")
+    print("PHP Class Navigator loaded successfully")

@@ -3,21 +3,24 @@ import sublime_plugin
 import os
 import re
 import threading
-import json
 from functools import lru_cache
 
 class PhpClassNavigator(sublime_plugin.EventListener):
     def on_hover(self, view, point, hover_zone):
         if hover_zone != sublime.HOVER_TEXT:
             return
+
         modifiers = sublime.get_mouse_additional_buttons()
         if not (modifiers & sublime.MOUSE_CTRL or modifiers & sublime.MOUSE_CMD):
             return
+
         word_region = view.word(point)
         class_name = view.substr(word_region)
+
         syntax = view.syntax()
         if not syntax or ("php" not in syntax.name.lower() and "blade" not in syntax.name.lower()):
             return
+
         view.run_command("dynamic_class_search_and_import", {"class_name": class_name})
 
 class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
@@ -27,10 +30,12 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
             if not class_name:
                 sublime.status_message("No class name selected.")
                 return
+
         project_dir = self.get_project_root()
         if not project_dir:
             sublime.status_message("No project directory found.")
             return
+
         threading.Thread(
             target=self.find_and_handle_class,
             args=(project_dir, class_name.strip())
@@ -66,7 +71,7 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
                     full_path = os.path.join(root, file)
                     classes = self.extract_classes_from_file(full_path)
                     for class_name, namespace in classes:
-                        fqcn = f"{namespace}\{class_name}" if namespace else class_name
+                        fqcn = f"{namespace}\\{class_name}" if namespace else class_name
                         class_map[class_name] = (fqcn, full_path)
                         class_map[fqcn] = (fqcn, full_path)
         return class_map
@@ -74,18 +79,21 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
     def extract_classes_from_file(self, file_path):
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
+
         namespace_match = re.search(r'namespace\s+([^;]+);', content)
         namespace = namespace_match.group(1).strip() if namespace_match else ''
+
         classes = []
         for match in re.finditer(r'(class|interface|trait)\s+(\w+)', content):
             if not self.is_in_comment_or_string(content, match.start()):
                 classes.append((match.group(2), namespace))
+
         return classes
 
     def is_in_comment_or_string(self, content, pos):
         preceding = content[:pos]
         return (
-            '/*' in preceding or 
+            '/*' in preceding or
             '//' in preceding.splitlines()[-1] or
             preceding.count('"') % 2 != 0 or
             preceding.count("'") % 2 != 0
@@ -95,12 +103,14 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
         if not class_info:
             sublime.status_message(f"Class not found: {class_name}")
             return
+
         fqcn, file_path = class_info
         self.open_class_file(file_path)
 
     def open_class_file(self, file_path):
         window = sublime.active_window()
         view = window.open_file(file_path)
+
         def scroll_to_class():
             if view.is_loading():
                 sublime.set_timeout(scroll_to_class, 100)
@@ -110,12 +120,14 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
                     view.show_at_center(class_region)
                     view.sel().clear()
                     view.sel().add(class_region.begin())
+
         sublime.set_timeout(scroll_to_class, 100)
 
 class InsertUseStatementCommand(sublime_plugin.TextCommand):
     def run(self, edit, class_name):
         use_region = self.view.find(r'^\s*use\s+.*?;', 0)
         insert_point = use_region.end() + 1 if use_region else self.find_namespace_end()
+
         self.view.insert(edit, insert_point, f'use {class_name};\n')
 
     def find_namespace_end(self):
@@ -123,3 +135,6 @@ class InsertUseStatementCommand(sublime_plugin.TextCommand):
         if namespace_region:
             return self.view.line(namespace_region).end()
         return 0
+
+def plugin_loaded():
+    print("PHP Class Navigator loaded successfully")

@@ -14,6 +14,7 @@ class PhpClassNavigator(sublime_plugin.EventListener):
 
         word_region = view.word(point)
         if view.match_selector(point, "source.php, text.html.basic"):
+            # Underline the class name when hovered
             view.add_regions(
                 "clickable_class",
                 [word_region],
@@ -22,7 +23,7 @@ class PhpClassNavigator(sublime_plugin.EventListener):
             )
 
     def on_text_command(self, view, command_name, args):
-        """Handle ⌘+Click to open classes (ST4 version)"""
+        """Handle ⌘+Click to open classes"""
         if (command_name == "drag_select" and
             args.get("by") == "words" and
             sublime.get_mouse_additional_buttons() & sublime.MOUSE_CMD):
@@ -45,19 +46,20 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
                 sublime.status_message("No class name selected")
                 return
 
-        if project_dir := self.get_project_root():
-            threading.Thread(
-                target=self.find_and_handle_class,
-                args=(project_dir, class_name.strip())
-            ).start()
-        else:
+        project_dir = self.get_project_root()
+        if not project_dir:
             sublime.status_message("No project directory found")
+            return
+
+        threading.Thread(
+            target=self.find_and_handle_class,
+            args=(project_dir, class_name.strip())
+        ).start()
 
     def get_project_root(self):
         """Get the first project folder"""
-        if folders := sublime.active_window().folders():
-            return folders[0]
-        return None
+        folders = sublime.active_window().folders()
+        return folders[0] if folders else None
 
     def get_selection(self):
         """Get selected text or word under cursor"""
@@ -69,7 +71,8 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
 
     def find_and_handle_class(self, project_dir, class_name):
         """Threaded class search and handling"""
-        if class_info := self.find_php_class(project_dir, class_name):
+        class_info = self.find_php_class(project_dir, class_name)
+        if class_info:
             sublime.set_timeout(
                 lambda: self.open_class_file(class_info[1]), 0)
         else:
@@ -79,16 +82,18 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
     @lru_cache(maxsize=100)
     def find_php_class(self, project_dir, class_name):
         """Find class in project with caching"""
-        return self.build_class_map(project_dir).get(class_name)
+        class_map = self.build_class_map(project_dir)
+        return class_map.get(class_name)
 
     def build_class_map(self, directory):
         """Create mapping of all classes to their files"""
         class_map = {}
         for php_file in Path(directory).rglob('*.php'):
-            for class_name, namespace in self.extract_classes_from_file(php_file):
-                fqcn = f"{namespace}\\{class_name}" if namespace else class_name
+            classes = self.extract_classes_from_file(php_file)
+            for cls_name, namespace in classes:
+                fqcn = f"{namespace}\\{cls_name}" if namespace else cls_name
                 class_map.update({
-                    class_name: (fqcn, str(php_file)),
+                    cls_name: (fqcn, str(php_file)),
                     fqcn: (fqcn, str(php_file))
                 })
         return class_map

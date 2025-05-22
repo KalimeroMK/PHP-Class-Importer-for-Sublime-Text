@@ -1,0 +1,7 @@
+[
+  {
+    "caption": "PHP: Insert Use Statement",
+    "command": "insert_use_statement",
+    "args": {"class_name": ""}
+  }
+]

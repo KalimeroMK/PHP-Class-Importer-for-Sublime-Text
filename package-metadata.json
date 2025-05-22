@@ -1,0 +1,8 @@
+{
+  "name": "PHP Class Importer",
+  "description": "PhpStorm-like class navigation and importing for PHP in Sublime Text.",
+  "author": "Zoran Bogoevski",
+  "homepage": "https://github.com/KalimeroMK/PHP-Class-Importer-for-Sublime-Text",
+  "issues": "https://github.com/KalimeroMK/PHP-Class-Importer-for-Sublime-Text/issues",
+  "platforms": ["*"]
+}

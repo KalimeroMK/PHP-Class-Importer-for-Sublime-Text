@@ -71,7 +71,8 @@ class DynamicClassSearchAndImportCommand(sublime_plugin.TextCommand):
                     full_path = os.path.join(root, file)
                     classes = self.extract_classes_from_file(full_path)
                     for class_name, namespace in classes:
-                        fqcn = f"{namespace}\\{class_name}" if namespace else class_name
+                        # Python 3.3 compatible string formatting
+                        fqcn = "{}\\{}".format(namespace, class_name) if namespace else class_name
                         class_map[class_name] = (fqcn, full_path)
                         class_map[fqcn] = (fqcn, full_path)
         return class_map
@@ -128,7 +129,7 @@ class InsertUseStatementCommand(sublime_plugin.TextCommand):
         use_region = self.view.find(r'^\s*use\s+.*?;', 0)
         insert_point = use_region.end() + 1 if use_region else self.find_namespace_end()
 
-        self.view.insert(edit, insert_point, f'use {class_name};\n')
+        self.view.insert(edit, insert_point, 'use {};\n'.format(class_name))
 
     def find_namespace_end(self):
         namespace_region = self.view.find(r'<\?php|\bnamespace\b', 0)
